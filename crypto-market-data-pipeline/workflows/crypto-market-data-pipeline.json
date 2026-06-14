@@ -1,0 +1,148 @@
+{
+  "name": "Crypto Market Data Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "022f8fed-172e-4ed5-aa55-19c51f05c78e",
+      "name": "Daily 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://api.coingecko.com/api/v3/coins/markets",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "vs_currency", "value": "usd" },
+            { "name": "ids", "value": "bitcoin,ethereum,solana,cardano,ripple" },
+            { "name": "order", "value": "market_cap_desc" },
+            { "name": "price_change_percentage", "value": "24h,7d" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3dddfab-e2ae-49d3-9b9a-6cb78ac07540",
+      "name": "Fetch Crypto Prices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [224, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\nconst now = new Date().toISOString();\n\nfor (const item of items) {\n  const coins = Array.isArray(item.json) ? item.json : [item.json];\n  for (const c of coins) {\n    if (!c.id) continue;\n    const price = c.current_price || 0;\n    const high = c.high_24h || price;\n    const low = c.low_24h || price;\n    const change24h = c.price_change_percentage_24h || 0;\n    const change7d = c.price_change_percentage_7d_in_currency || 0;\n\n    const volatility = price > 0 ? (((high - low) / price) * 100) : 0;\n    const range = high - low;\n    const pricePosition = range > 0 ? (((price - low) / range) * 100) : 50;\n\n    let signal = 'NEUTRAL';\n    if (change24h > 3 && change7d > 0) signal = 'BULLISH';\n    else if (change24h < -3 && change7d < 0) signal = 'BEARISH';\n\n    results.push({ json: {\n      date: now,\n      name: c.name,\n      symbol: (c.symbol || '').toUpperCase(),\n      price_usd: price,\n      market_cap: c.market_cap || 0,\n      volume_24h: c.total_volume || 0,\n      change_24h_pct: Math.round(change24h * 100) / 100,\n      change_7d_pct: Math.round(change7d * 100) / 100,\n      volatility_pct: Math.round(volatility * 100) / 100,\n      price_position_pct: Math.round(pricePosition * 100) / 100,\n      signal: signal\n    }});\n  }\n}\nreturn results;"
+      },
+      "id": "f003e27d-914d-4ce3-a599-e464bb650e58",
+      "name": "Calculate Indicators",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Change 24h %": "={{ $json.change_24h_pct }}",
+            "Change 7d %": "={{ $json.change_7d_pct }}",
+            "Date": "={{ $json.date }}",
+            "Market Cap": "={{ $json.market_cap }}",
+            "Name": "={{ $json.name }}",
+            "Price (USD)": "={{ $json.price_usd }}",
+            "Price Position %": "={{ $json.price_position_pct }}",
+            "Signal": "={{ $json.signal }}",
+            "Symbol": "={{ $json.symbol }}",
+            "Volatility %": "={{ $json.volatility_pct }}",
+            "Volume 24h": "={{ $json.volume_24h }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            { "id": "Date", "displayName": "Date", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Name", "displayName": "Name", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Symbol", "displayName": "Symbol", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Price (USD)", "displayName": "Price (USD)", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Market Cap", "displayName": "Market Cap", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Volume 24h", "displayName": "Volume 24h", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Change 24h %", "displayName": "Change 24h %", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Change 7d %", "displayName": "Change 7d %", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Volatility %", "displayName": "Volatility %", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Price Position %", "displayName": "Price Position %", "type": "string", "display": true, "canBeUsedToMatch": true },
+            { "id": "Signal", "displayName": "Signal", "type": "string", "display": true, "canBeUsedToMatch": true }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a85fcf3c-38da-49be-bbe0-e99df7fcda06",
+      "name": "Save to History Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [672, 0]
+    },
+    {
+      "id": "8ef18142-538c-476d-b0b2-633871003d23",
+      "name": "Filter Big Movers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 0],
+      "parameters": {
+        "jsCode": "const movers = $input.all().filter(i => Math.abs(Number(i.json['Change 24h %'])) >= 5);\nif (movers.length === 0) return [];\n\nlet rows = '';\nfor (const m of movers) {\n  const j = m.json;\n  const color = j['Signal'] === 'BULLISH' ? '#16a34a' : (j['Signal'] === 'BEARISH' ? '#dc2626' : '#6b7280');\n  rows += `<tr>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;\"><strong>${j['Name']}</strong> (${j['Symbol']})</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;\">$${Number(j['Price (USD)']).toLocaleString()}</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;color:${color};\">${j['Change 24h %']}%</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;\">${j['Change 7d %']}%</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;color:${color};font-weight:bold;\">${j['Signal']}</td>\n  </tr>`;\n}\n\nconst html = `<div style=\"font-family:Arial,sans-serif;max-width:600px;\">\n  <h2 style=\"color:#1a1a2e;\">📊 Crypto Market Alert</h2>\n  <p>The following ${movers.length} coins moved more than 5% in the last 24 hours:</p>\n  <table style=\"width:100%;border-collapse:collapse;\">\n    <tr style=\"background:#1a1a2e;color:#fff;\">\n      <th style=\"padding:10px;text-align:left;\">Coin</th>\n      <th style=\"padding:10px;text-align:left;\">Price</th>\n      <th style=\"padding:10px;text-align:left;\">24h</th>\n      <th style=\"padding:10px;text-align:left;\">7d</th>\n      <th style=\"padding:10px;text-align:left;\">Signal</th>\n    </tr>\n    ${rows}\n  </table>\n  <p style=\"color:#888;font-size:12px;margin-top:20px;\">Generated by your Crypto Data Pipeline · ${new Date().toLocaleDateString()}</p>\n</div>`;\n\nreturn [{ json: { email_html: html, mover_count: movers.length } }];"
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_EMAIL@example.com",
+        "subject": "=📊 Crypto Alert: {{ $json.mover_count }} coins moved >5% today",
+        "message": "={{ $json.email_html }}",
+        "options": {},
+        "operation": "send",
+        "resource": "message"
+      },
+      "id": "2f2848dd-3ae8-4903-a78d-05355fa58403",
+      "name": "Email Big Movers",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 0]
+    }
+  ],
+  "connections": {
+    "Daily 9 AM": {
+      "main": [[{ "node": "Fetch Crypto Prices", "type": "main", "index": 0 }]]
+    },
+    "Fetch Crypto Prices": {
+      "main": [[{ "node": "Calculate Indicators", "type": "main", "index": 0 }]]
+    },
+    "Calculate Indicators": {
+      "main": [[{ "node": "Save to History Sheet", "type": "main", "index": 0 }]]
+    },
+    "Save to History Sheet": {
+      "main": [[{ "node": "Filter Big Movers", "type": "main", "index": 0 }]]
+    },
+    "Filter Big Movers": {
+      "main": [[{ "node": "Email Big Movers", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["crypto", "etl", "automation", "n8n"]
+}
